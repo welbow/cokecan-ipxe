@@ -1,0 +1,142 @@
+#!ipxe
+
+set menu-timeout 0
+set submenu-timeout ${menu-timeout}
+isset ${menu-default} || set menu-default exit
+
+set sanboot-url http://192.168.3.239/
+set tftpboot-url tftp://192.168.3.239//var/lib/tftpboot/
+
+# Figure out if client is 64-bit capable
+cpuid --ext 29 && set arch x64 || set arch x86
+cpuid --ext 29 && set archl amd64 || set archl i386
+
+:start
+
+menu iPXE boot menu
+item --gap --             ------------------------- Operating systems ------------------------------
+item windows7iso     Boot Windows 7 ISO
+item centos8	     Boot CentOS 8
+item archlinux       Boot Arch Linux
+item talos-cp	     Boot Talos Control Plane
+#item --key w windows7     Boot Windows 7 from iSCSI
+#item --key l menu-live    Live environments...
+item --gap --             ------------------------- Tools and utilities ----------------------------
+#item --key p pxelinux     Load PXELinux menu
+item --key r menu-recovery Diagnostic and recovery tools...
+item clonezilla Clonezilla
+item gparted GParted
+item --gap --             ------------------------- Advanced options -------------------------------
+item --key c config       Configure settings
+item shell                Drop to iPXE shell
+item reboot               Reboot computer
+item
+item --key x exit         Exit iPXE and continue BIOS boot
+choose --timeout ${menu-timeout} --default ${menu-default} selected || goto cancel
+set menu-timeout 0
+goto ${selected}
+
+:cancel
+echo You cancelled the menu, dropping you to a shell
+
+:shell
+echo Type 'exit' to get the back to the menu
+shell
+set menu-timeout 0
+set submenu-timeout 0
+goto start
+
+:failed
+echo Booting failed, dropping to shell
+goto shell
+
+:reboot
+reboot
+
+:exit
+exit
+
+:config
+config
+goto start
+
+:back
+set submenu-timeout 0
+clear submenu-default
+goto start
+
+:windows7iso
+kernel ${tftpboot-url}wimboot
+initrd ${tftpboot-url}win7/boot/bcd		BCD
+initrd ${tftpboot-url}win7/boot/boot.sdi	boot.sdi
+initrd ${tftpboot-url}win7/sources/install.wim	install.wim
+boot || pause
+pause
+goto start
+
+:centos8
+kernel ${tftpboot-url}centos8/vmlinuz initrd=initrd.img inst.repo=http://192.168.3.239/centos8
+initrd ${tftpboot-url}centos8/initrd.img
+boot || pause
+pause
+goto start
+
+:archlinux
+kernel ${tftpboot-url}archlinux/vmlinuz-linux archisobasedir=arch archiso_http_srv=${sanboot-url}archlinux/ bootif=${net0/mac} ip=dhcp nomodeset
+initrd ${tftpboot-url}archlinux/amd-ucode.img
+initrd ${tftpboot-url}archlinux/initramfs-linux.img
+initrd ${tftpboot-url}archlinux/intel-ucode.img
+boot
+pause
+goto start
+
+:talos-cp
+kernel ${tftpboot-url}talos/vmlinuz-amd64 talos.config=http://192.168.3.239/talos/controlplane.yaml talos.platform=metal init_on_alloc=1 slab_nomerge pti=on ip=dhcp 
+initrd ${tftpboot-url}talos/initramfs-amd64.xz
+imgstat
+boot
+pause
+goto start
+
+:clonezilla
+kernel ${tftpboot-url}clonezilla/vmlinuz
+imgfetch ${tftpboot-url}clonezilla/initrd.img 
+imgargs initrd=initrd.img boot=live username=user union=overlay config components quiet noswap edd=on nomodeset nodmraid locales= keyboard-layouts= ocs_live_run="ocs-live-general" ocs_live_extra_param="" ocs_live_batch=no net.ifnames=0 nosplash noprompt fetch=${tftpboot-url}clonezilla/filesystem.squashfs
+#boot ${tftpboot-url}clonezilla/vmlinuz initrd=initrd.img boot=live username=user union=overlay config components quiet noswap edd=on nomodeset nodmraid locales= keyboard-layouts= ocs_live_run="ocs-live-general" ocs_live_extra_param="" ocs_live_batch=no net.ifnames=0 nosplash noprompt fetch=${tftpboot-url}clonezilla/filesystem.squashfs
+boot
+#sanboot --no-describe ${sanboot-url}clonezilla-live-amd64.iso || goto failed
+pause
+goto start
+
+:gparted
+sanboot --no-describe ${sanboot-url}gparted-live-i686.iso || goto failed
+
+###################### RECOVERY MENU ################################
+
+:menu-recovery
+menu Recovery tools
+item --gap --             ------------------------ Diagnostic Tools -------------------------------
+item memtest Memtest86
+item
+item --gap --             ------------------------- Antivirus Tools -------------------------------
+item avg_arl AVG Rescue CD
+item kav_rescue Kapersky AV Rescue CD
+item
+item --gap --             -------------------------------------------------------------------------
+item --key 0x08 back Back to top menu...
+iseq ${menu-default} menu-recovery && isset ${submenu-default} && goto menu-recovery-timed ||
+choose selected && goto ${selected} || goto start
+:menu-recovery-timed
+choose --timeout ${submenu-timeout} --default ${submenu-default} selected && goto ${selected} || goto start
+
+:avg_arl
+sanboot --no-describe ${sanboot-url}avg_arl_cdi_all.iso || goto failed
+goto start
+
+:kav_rescue
+sanboot --no-describe ${sanboot-url}kav_rescue.iso || goto failed
+goto start
+
+:memtest
+sanboot --no-describe ${sanboot-url}Memtest86.iso || goto failed
+
